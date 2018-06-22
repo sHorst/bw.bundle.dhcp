@@ -105,7 +105,8 @@ for class_name, class_config in sorted(dhcp_config.get('classes', {}).items(), k
         '}',
     ]
 
-
+used_macs = []
+used_ips = []
 # --------------------------------------
 # hosts
 # --------------------------------------
@@ -114,12 +115,22 @@ for host, host_config in sorted(dhcp_config.get('hosts', {}).items(), key=sort_h
         'host {} {{'.format(host),
     ]
     if 'mac' in host_config:
+        mac = host_config['mac']
+        if mac in used_macs:
+            raise ValueError('mac {} is used twice'.format(mac))
+
+        used_macs += [mac, ]
         dhcp_config_file += [
-            '    hardware ethernet {};'.format(host_config['mac']),
+            '    hardware ethernet {};'.format(mac),
         ]
     if 'ip' in host_config:
+        ip = host_config['ip']
+        if ip in used_ips:
+            raise ValueError('IP {} is used twice'.format(ip))
+
+        used_ips += [ip, ]
         dhcp_config_file += [
-            '    fixed-address {};'.format(host_config['ip']),
+            '    fixed-address {};'.format(ip),
         ]
 
     if 'filename' in host_config:
