@@ -15,12 +15,6 @@ def sort_subnets(x):
 
 dhcp_config = node.metadata.get('dhcp', {})
 
-pkg_apt = {
-    'isc-dhcp-server': {
-        'installed': True,
-    }
-}
-
 svc_systemv = {}
 svc_systemd = {}
 restart_action = ''
