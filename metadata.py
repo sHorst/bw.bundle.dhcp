@@ -35,6 +35,7 @@ def insert_all_nodes(metadata):
 
             netmask = interface_config.get('netmask', '255.255.255.255')
             ips = [ip_address(x) for x in interface_config['ip_addresses']]
+            gateway = interface_config.get('gateway', None)
             first = True
             for ip in ips:
                 network = ip_network('{}/{}'.format(ip, netmask), False)
@@ -54,6 +55,11 @@ def insert_all_nodes(metadata):
                     # only reserve ip so it is not used by DHCP
                     metadata['dhcp']['hosts'].setdefault("{}_{}".format(host.name, interface), {
                         'ip': ip,
+                    })
+
+                if gateway:
+                    metadata['dhcp']['hosts']["{}_{}".format(host.name, interface)].setdefault('options', {
+                        'routers': gateway,
                     })
 
     return metadata, DONE
