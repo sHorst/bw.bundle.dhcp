@@ -19,17 +19,18 @@ svc_systemv = {}
 svc_systemd = {}
 restart_action = ''
 
-if node.metadata.get('distro_release') == '16.04':
-    svc_systemd["isc-dhcp-server"] = {
-        'needs': ['pkg_apt:isc-dhcp-server'],
-    }
+if node.os == 'debian':
+    if node.os_version[0] >= 9:
+        svc_systemd["isc-dhcp-server"] = {
+            'needs': ['pkg_apt:isc-dhcp-server'],
+        }
 
-    restart_action = 'svc_systemd:isc-dhcp-server:restart'
-else:
-    svc_systemv["isc-dhcp-server"] = {
-        'needs': ['pkg_apt:isc-dhcp-server'],
-    }
-    restart_action = 'svc_systemv:isc-dhcp-server:restart'
+        restart_action = 'svc_systemd:isc-dhcp-server:restart'
+    else:
+        svc_systemv["isc-dhcp-server"] = {
+            'needs': ['pkg_apt:isc-dhcp-server'],
+        }
+        restart_action = 'svc_systemv:isc-dhcp-server:restart'
 
 dhcp_config_file = [
     '# Config file dhcp',
@@ -146,11 +147,15 @@ for host, host_config in sorted(dhcp_config.get('hosts', {}).items(), key=sort_h
         '}',
     ]
 
-# --------------------------------------
-# subnets
-# --------------------------------------
-for subnet, subnet_config in sorted(dhcp_config.get('subnets', {}).items(), key=lambda x: ip_network(x[0])):
-    subnet = ip_network(subnet)
+interfaces = []
+for interface, interface_config in node.metadata.get('interfaces', {}).items():
+    subnet_config = interface_config.get('isc-dhcp', None)
+    if not subnet_config:
+        continue
+
+    interfaces += [interface, ]
+
+    subnet = ip_network('{}/{}'.format(interface_config.get('ip_addresses', [None])[0], interface_config.get('netmask', '255.255.255.0')), strict=False)
     network_addr = subnet.network_address
     netmask = subnet.netmask
 
@@ -162,9 +167,13 @@ for subnet, subnet_config in sorted(dhcp_config.get('subnets', {}).items(), key=
         '    range {range[0]} {range[1]};'.format(
             range=subnet_config.get('range', [subnet.network_address, subnet.broadcast_address])
         ),
+        '    option broadcast-address {};'.format(subnet.broadcast_address),
     ]
 
     for option, option_value in sorted(subnet_config.get('options', {}).items(), key=lambda x: x[0]):
+        if option == 'broadcast-address':
+            continue
+
         dhcp_config_file += [
             '    option {} {};'.format(option, option_value),
         ]
@@ -185,6 +194,28 @@ for subnet, subnet_config in sorted(dhcp_config.get('subnets', {}).items(), key=
         '}',
     ]
 
+
+defaults = [
+    '# Defaults for isc-dhcp-server (sourced by /etc/init.d/isc-dhcp-server)',
+    '',
+    '# Path to dhcpd\'s config file (default: /etc/dhcp/dhcpd.conf).',
+    '#DHCPDv4_CONF=/etc/dhcp/dhcpd.conf',
+    '#DHCPDv6_CONF=/etc/dhcp/dhcpd6.conf',
+    '',
+    '# Path to dhcpd\'s PID file (default: /var/run/dhcpd.pid).',
+    '#DHCPDv4_PID=/var/run/dhcpd.pid',
+    '#DHCPDv6_PID=/var/run/dhcpd6.pid',
+    '',
+    '# Additional options to start dhcpd with.',
+    '#       Don\'t use options -cf or -pf here; use DHCPD_CONF/ DHCPD_PID instead',
+    '#OPTIONS=""',
+    '',
+    '# On what interfaces should the DHCP server (dhcpd) serve DHCP requests?',
+    '#       Separate multiple interfaces with spaces, e.g. "eth0 eth1".',
+    'INTERFACESv4="{}"'.format(' '.join(interfaces)),
+    'INTERFACESv6=""',
+]
+
 files = {
     '/etc/dhcp/dhcpd.conf': {
         'content': "\n".join(dhcp_config_file) + '\n',
@@ -193,6 +224,26 @@ files = {
         'mode': '0644',
         'triggers': [
             restart_action,
-        ]
+        ],
+    },
+    '/etc/default/isc-dhcp-server': {
+        'content': "\n".join(defaults) + '\n',
+        'owner': 'root',
+        'group': 'root',
+        'mode': '0644',
+        'triggers': [
+            restart_action,
+        ],
+    },
+}
+
+symlinks = {
+    '/etc/dhcp/dhcpd.leases': {
+        'target': '/var/lib/dhcp/dhcpd.leases',
+        'owner': 'root',
+        'group': 'root',
+        'needs': [
+            'pkg_apt:isc-dhcp-server',
+        ],
     }
 }

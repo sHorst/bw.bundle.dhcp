@@ -25,7 +25,13 @@ def insert_all_nodes(metadata):
 
         hosts += [node, ]
 
-    available_subnets = [ip_network(x) for x in metadata.get('dhcp', {}).get('subnets', {}).keys()]
+    available_subnets = []
+    for interface, interface_config in metadata.get('interfaces', {}).items():
+        subnet_config = interface_config.get('isc-dhcp', None)
+        if not subnet_config:
+            continue
+
+        available_subnets += [ip_network('{}/{}'.format(interface_config.get('ip_addresses', [None])[0], interface_config.get('netmask', '255.255.255.0')), strict=False), ]
 
     for host in hosts:
         for interface, interface_config in host.partial_metadata.get('interfaces', {}).items():
