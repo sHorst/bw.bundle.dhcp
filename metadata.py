@@ -1,27 +1,26 @@
 from ipaddress import ip_address, ip_network
 
+defaults = {
+    'dhcp': {
+        'hosts': {},
+    }
+}
 
-@metadata_processor
-def add_apt_packages(metadata):
-    if node.has_bundle("apt"):
-        metadata.setdefault('apt', {})
-        metadata['apt'].setdefault('packages', {})
-
-        metadata['apt']['packages']['isc-dhcp-server'] = {'installed': True}
-
-    return metadata, DONE
+if node.has_bundle("apt"):
+    defaults['apt'] = {
+        'packages': {
+            'isc-dhcp-server': {'installed': True}
+        }
+    }
 
 
-@metadata_processor
+@metadata_reactor
 def insert_all_nodes(metadata):
-    metadata.setdefault('dhcp', {})
-    metadata['dhcp'].setdefault('hosts', {})
-
     hosts = []
 
     for node in sorted(repo.nodes, key=lambda x: x.name):
         if node.partial_metadata == {}:
-            return metadata, RUN_ME_AGAIN
+            return {}
 
         hosts += [node, ]
 
@@ -32,6 +31,8 @@ def insert_all_nodes(metadata):
             continue
 
         available_subnets += [ip_network('{}/{}'.format(interface_config.get('ip_addresses', [None])[0], interface_config.get('netmask', '255.255.255.0')), strict=False), ]
+
+    meta_hosts = {}
 
     for host in hosts:
         for interface, interface_config in host.partial_metadata.get('interfaces', {}).items():
@@ -55,19 +56,23 @@ def insert_all_nodes(metadata):
                 if mac and first:
                     first = False
                     # make connection only for first ip
-                    metadata['dhcp']['hosts'].setdefault("{}_{}".format(host.name, interface), {
+                    meta_hosts.setdefault("{}_{}".format(host.name, interface), {
                         'mac': mac,
-                        'ip': ip,
+                        'ip': str(ip),
                     })
                 else:
                     # only reserve ip so it is not used by DHCP
-                    metadata['dhcp']['hosts'].setdefault("{}_{}".format(host.name, interface), {
-                        'ip': ip,
+                    meta_hosts.setdefault("{}_{}".format(host.name, interface), {
+                        'ip': str(ip),
                     })
 
                 if gateway:
-                    metadata['dhcp']['hosts']["{}_{}".format(host.name, interface)].setdefault('options', {
+                    meta_hosts["{}_{}".format(host.name, interface)].setdefault('options', {
                         'routers': gateway,
                     })
 
-    return metadata, DONE
+    return {
+        'dhcp': {
+            'hosts': meta_hosts,
+        }
+    }

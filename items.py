@@ -121,6 +121,7 @@ for host, host_config in sorted(dhcp_config.get('hosts', {}).items(), key=sort_h
     if 'ip' in host_config:
         ip = host_config['ip']
         if ip in used_ips:
+            print(dhcp_config.get('hosts'))
             raise ValueError('IP {} is used twice'.format(ip))
 
         used_ips += [ip, ]
