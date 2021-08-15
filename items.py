@@ -107,7 +107,7 @@ used_ips = []
 # --------------------------------------
 for host, host_config in sorted(dhcp_config.get('hosts', {}).items(), key=sort_hosts):
     dhcp_config_file += [
-        'host {} {{'.format(host),
+        'host {} {{'.format(host.replace(':', '_')),
     ]
     if 'mac' in host_config:
         mac = host_config['mac']
