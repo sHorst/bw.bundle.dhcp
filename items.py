@@ -20,7 +20,7 @@ svc_systemd = {}
 restart_action = ''
 
 if node.os == 'debian':
-    if node.os_version[0] >= 9:
+    if node.metadata.get('debian', {}).get('init', 'systemd') == 'systemd':
         svc_systemd["isc-dhcp-server"] = {
             'needs': ['pkg_apt:isc-dhcp-server'],
         }
