@@ -2,14 +2,70 @@ from ipaddress import ip_address, ip_network
 
 defaults = {
     'dhcp': {
-        'hosts': {},
+        'authoritative': False,
+        'bootp': False,
+        'log': 'local7',
+
+        'lease-time': 7200,
+        'max-lease-time': 43200,
+
+        'vendor_options': {
+            # 'snom': {
+            #     'tftp-server-name': {
+            #         'code': 66,
+            #         'type': 'text',
+            #     },
+            # },
+        },
+
+        'classes': {
+            # 'snom': {
+            #     'test': "substring(option[vendor-class-identifier],0,4) = 'snom'",
+            #     'vendors': ['snom', ],
+            #     'options': {
+            #         'tftp-server-name': '"tftp://192.168.0.1"',
+            #         'snom.tftp-server-name': '"tftp://192.168.0.1"',
+            #         'ntp-servers': '192.168.0.1',
+            #         'bootfile-name': 'concat("snom/",option vendor-class-identifier,".htm")',
+            #         'snom.bootfile-name': 'concat("snom/",option vendor-class-identifier,".htm")',
+            #     },
+            #     'next-server': '192.168.0.1',
+            #     'boot-file-name': "snom/snom370.cfg"',
+            # },
+        },
+
+        'subnets': {
+            # '192.168.0.0/24': {
+            #     'range': ['192.168.0.100', '192.168.0.190'],
+            #     'options': {
+            #         'routers': '192.168.0.1',
+            #         'broadcast-address': '192.168.0.255',
+            #         'domain-name': 'home',
+            #         'domain-name-servers': '192.168.0.1',
+            #     },
+            #     'failover': {
+            #         'peer': 'secondary',  # if this is a node name, it will setup a new peer for us
+            #     },
+            # },
+        },
+
+        'hosts': {
+            # 'host1': {
+            #     'mac': '00:23:32:xx:xx:xx',
+            #     'ip': '192.168.0.2',
+            #     'options': {
+            #         'host-name': '"host1"',
+            #     }
+            # },
+        },
     }
 }
 
 if node.has_bundle("apt"):
     defaults['apt'] = {
         'packages': {
-            'isc-dhcp-server': {'installed': True}
+            'isc-dhcp-server': {'installed': False},  # remove old server
+            'kea': {'installed': True},
         }
     }
 
@@ -74,5 +130,28 @@ def insert_all_nodes(metadata):
     return {
         'dhcp': {
             'hosts': meta_hosts,
+        }
+    }
+
+
+@metadata_reactor
+def convert_client_class_match_to_test(metadata):
+    new_tests = {}
+
+    for class_name, class_config in metadata.get('dhcp/classes', {}).items():
+        old_match = class_config.get('match', None)
+        if old_match is None:
+            continue
+
+        new_test = (old_match.replace('"', "'").replace('option vendor-class-identifier', 'option[60].hex').
+                    replace('=', '==').replace('if ', '').replace('substring (', 'substring('))
+
+        new_tests[class_name] = {
+            'test': new_test
+        }
+
+    return {
+        'dhcp': {
+            'classes': new_tests,
         }
     }
