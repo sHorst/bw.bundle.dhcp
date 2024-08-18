@@ -396,6 +396,9 @@ for host, host_config in sorted(dhcp_config.get('hosts', {}).items(), key=sort_h
 
 subnet4 = []
 interfaces = []
+# --------------------------------------
+# subnets
+# --------------------------------------
 for interface, interface_config in node.metadata.get('interfaces', {}).items():
     subnet_config = interface_config.get('isc-dhcp', None)
     if not subnet_config:
@@ -453,6 +456,7 @@ for interface, interface_config in node.metadata.get('interfaces', {}).items():
     s = {
         # 'id': '', # TODO: give ID
         'subnet': subnet,
+        'interface': interface,
         'pools': [
             {'pool': pool, },
         ],
