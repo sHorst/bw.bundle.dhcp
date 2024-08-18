@@ -10,6 +10,11 @@ defaults = {
 
         'lease-time': 7200,
         'max-lease-time': 43200,
+        'tls': {
+            # "trust-anchor": "kea_CA.pem",  # CA used to validate client certificates
+            # "cert-file": "dhcp1_cert.pem",  # our Certificate
+            # "key-file": "dhcp1_key.pem",  # our privateKey
+        },
 
         'control_agent': {
             'enabled': False,
@@ -17,12 +22,29 @@ defaults = {
             'host': '127.0.0.1',  # will be set by interface automaticaly
             'port': 8000,
 
-            'tls': {
-                # "trust-anchor": "kea_CA.pem",  # CA used to validate client certificates
-                # "cert-file": "dhcp1_cert.pem",  # our Certificate
-                # "key-file": "dhcp1_key.pem",  # our privateKey
-                "cert-required": False,  # Client needs to authenticate
-            },
+            "tls-cert-required": False,  # Client needs to authenticate
+        },
+
+        'high_availability': {
+            "mode": "off",  # can be off, load-balancing, hot-standby, passive-backup
+            "client_name": None,  # will be autoset to node name
+            "client_role": None,  # must be one of primary, secondary (only in load-balance), standby (only in hot-standby) or backup
+            "heartbeat-delay": 10000,
+            "max-response-delay": 60000,
+            "max-ack-delay": 5000,
+            "max-unacked-clients": 5,
+            "max-rejected-lease-updates": 10,
+            'can-auto-failover': True,  # this will be used to set in peer of other servers
+
+            'peer_group': None,  # will automatically add all nodes with same peer group
+            'peers': [
+                # {
+                #     'name': 'backup_server',
+                #     'url': "https://192.168.2.123",
+                #     'role': 'backup',
+                #     'auto-failover': False,
+                # },
+            ],
         },
 
         'vendor_options': {
@@ -105,7 +127,6 @@ def insert_all_nodes(metadata):
         available_subnets += [ip_network('{}/{}'.format(interface_config.get('ip_addresses', [None])[0], interface_config.get('netmask', '255.255.255.0')), strict=False), ]
 
     meta_hosts = {}
-
     for host in hosts:
         for interface, interface_config in host.partial_metadata.get('interfaces', {}).items():
             # if 'mac' not in interface_config:
@@ -199,6 +220,60 @@ def set_ca_ip_for_interface(metadata):
         'dhcp': {
             'control_agent': {
                 'host': ip,
+            }
+        }
+    }
+
+
+@metadata_reactor
+def find_ha_peers(metadata):
+    peer_group = metadata.get('dhcp/high_availability/peer_group')
+    if (metadata.get('dhcp/high_availability/mode', 'off') == 'off' or
+            peer_group is None):
+        raise DoNotRunAgain
+
+    peers = []
+    iptables_rules = {}
+    for peer in sorted(repo.nodes, key=lambda x: x.name):
+        if peer.partial_metadata == {}:
+            return {}
+
+        if (peer.partial_metadata.get('dhcp/high_availability/mode', 'off') == 'off' or
+                peer.partial_metadata.get('dhcp/high_availability/peer_group') != peer_group):
+            continue
+
+        peer_name = peer.partial_metadata.get('dhcp/high_availability/client_name', None)
+        if peer_name is None:
+            peer_name = peer.name
+
+        host = peer.partial_metadata.get('dhcp/control_agent/host')
+        port = peer.partial_metadata.get('dhcp/control_agent/port')
+        tls = peer.partial_metadata.get('dhcp/tls/trust-anchor', None) is not None
+
+        url = ('https' if tls else 'http') + f'://{host}:{port}'
+
+        peers += [
+            {
+                'name': peer_name,
+                'url': url,
+                'role': peer.partial_metadata.get('dhcp/high_availability/client_role'),
+                'auto-failover': peer.partial_metadata.get('dhcp/high_availability/can-auto-failover'),
+            }
+        ]
+
+        if node.has_bundle("iptables") and node.name != peer.name:
+            iptables_rules += repo.libs.iptables.accept(). \
+                input(metadata.get('dhcp/control_agent/interface', 'main-interface')). \
+                source(host). \
+                state_new(). \
+                tcp(). \
+                dest_port(metadata.get('dhcp/control_agent/port'))
+
+    return {
+        'iptables': iptables_rules['iptables'],
+        'dhcp': {
+            'high_availability': {
+                'peers': peers,
             }
         }
     }

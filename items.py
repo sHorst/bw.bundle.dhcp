@@ -77,6 +77,7 @@ def map_option_types(old_type):
 
 dhcp_config = node.metadata.get('dhcp', {})
 ca_config = dhcp_config.get('control_agent')
+ha_config = dhcp_config.get('high_availability')
 
 svc_systemd = {
     "kea-ctrl-agent.service": {
@@ -569,25 +570,25 @@ ctrl_agent = {
 }
 
 all_set = True
-one_set = False
+tls_enabled = False
 # add TLS to control_agent
 for parameter in ['trust-anchor', 'cert-file', 'key-file']:
-    filename = ca_config.get('tls').get(parameter, None)
+    filename = dhcp_config.get('tls').get(parameter, None)
 
     if filename is None:
         all_set = False
         continue
 
-    one_set = True
+    tls_enabled = True
 
     ctrl_agent['Control-agent'][parameter] = join('/etc/kea/ssl', filename)
 
-if one_set and not all_set:
+if tls_enabled and not all_set:
     raise BundleError('you need to set all or none of those paremeters: trust-anchor, cert-file, key-file')
 
 # parameter makes only sense, if certs are set
 if all_set:
-    ctrl_agent['Control-agent']['cert-required'] = ca_config.get('tls').get('cert-required')
+    ctrl_agent['Control-agent']['cert-required'] = ca_config.get('tls-cert-required')
 
 dhcp4 = {
     # DHCPv4 configuration starts here. This section will be read by DHCPv4 server
@@ -1052,6 +1053,46 @@ dhcp4 = {
 
 
 }
+
+# check HA feature
+if ha_config.get('mode', 'off') != 'off':
+    client_name = ha_config.get('client_name', None)
+    if client_name is None:
+        client_name = node.name
+
+    libdhcp_lease_cmds = {
+        "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_lease_cmds.so",
+        "parameters": {}
+    }
+
+    libdhcp_ha = {
+        "library": "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_ha.so",
+        "parameters": {
+            "high-availability": [{
+                "this-server-name": client_name,
+                "mode": ha_config.get('mode'),
+                "heartbeat-delay": ha_config.get('heartbeat-delay'),
+                "max-response-delay": ha_config.get('max-response-delay'),
+                "max-ack-delay": ha_config.get('max-ack-delay'),
+                "max-unacked-clients": ha_config.get('max-unacked-clients'),
+                "max-rejected-lease-updates": ha_config.get('max-rejected-lease-updates'),
+
+                "peers": ha_config.get('peers'),
+            }]
+        }
+    }
+
+    if tls_enabled:
+        for parameter in ['trust-anchor', 'cert-file', 'key-file']:
+            libdhcp_ha['parameters']['high-availability'][0][parameter] = join('/etc/kea/ssl', dhcp_config.get('tls').
+                                                                               get(parameter, None))
+
+    dhcp4["Dhcp4"]['hooks-libraries'] = [libdhcp_lease_cmds, libdhcp_ha, ]
+
+
+
+
+
 dhcp6 = {
     # DHCPv6 configuration starts here. This section will be read by DHCPv6 server
     # and will be ignored by other components.
@@ -1580,7 +1621,7 @@ directories = {
 
 # get Controll Agent TLS Certs
 for parameter in ['trust-anchor', 'cert-file']:
-    filename = ca_config.get('tls', {}).get(parameter, None)
+    filename = dhcp_config.get('tls', {}).get(parameter, None)
 
     if filename is not None:
         files[join('/etc/kea/ssl', filename)] = {
@@ -1596,7 +1637,7 @@ for parameter in ['trust-anchor', 'cert-file']:
         }
 
 for parameter in ['key-file']:
-    filename = ca_config.get('tls', {}).get(parameter, None)
+    filename = dhcp_config.get('tls', {}).get(parameter, None)
 
     if filename is not None:
         files[join('/etc/kea/ssl', filename)] = {
