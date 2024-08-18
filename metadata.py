@@ -1,13 +1,29 @@
 from ipaddress import ip_address, ip_network
+from bundlewrap.metadata import DoNotRunAgain
+from bundlewrap.exceptions import BundleError
 
 defaults = {
     'dhcp': {
         'authoritative': False,
-        'bootp': False,
-        'log': 'local7',
+        # 'bootp': False,
+        # 'log': 'local7',
 
         'lease-time': 7200,
         'max-lease-time': 43200,
+
+        'control_agent': {
+            'enabled': False,
+            # 'interface': 'main_interface',  # if not set, use host to set bind ip
+            'host': '127.0.0.1',  # will be set by interface automaticaly
+            'port': 8000,
+
+            'tls': {
+                # "trust-anchor": "kea_CA.pem",  # CA used to validate client certificates
+                # "cert-file": "dhcp1_cert.pem",  # our Certificate
+                # "key-file": "dhcp1_key.pem",  # our privateKey
+                "cert-required": False,  # Client needs to authenticate
+            },
+        },
 
         'vendor_options': {
             # 'snom': {
@@ -44,7 +60,7 @@ defaults = {
             #         'domain-name-servers': '192.168.0.1',
             #     },
             #     'failover': {
-            #         'peer': 'secondary',  # if this is a node name, it will setup a new peer for us
+            #         'peers': ['secondary', ],  # if this is a node name, it will setup a new peer for us
             #     },
             # },
         },
@@ -153,5 +169,36 @@ def convert_client_class_match_to_test(metadata):
     return {
         'dhcp': {
             'classes': new_tests,
+        }
+    }
+
+
+@metadata_reactor
+def set_ca_ip_for_interface(metadata):
+    i = metadata.get('dhcp/control_agent/interface', None)
+
+    if i == 'main_interface':
+        i = metadata.get('main_interface', None)
+
+    if i is None:
+        raise DoNotRunAgain
+
+    if i == 'all':
+        ip = '0.0.0.0'
+    else:
+        interface_config = metadata.get(f'interfaces/{i}', {})
+        if interface_config == {}:
+            raise BundleError(f'Unknown interface {i}')
+
+        ip = interface_config.get('ip_addresses', [None])[0]  # only get first ip
+
+        if ip is None:
+            raise BundleError(f'No IP for interface {i}')
+
+    return {
+        'dhcp': {
+            'control_agent': {
+                'host': ip,
+            }
         }
     }

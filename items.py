@@ -1,5 +1,7 @@
 from ipaddress import ip_network, ip_address
 from bundlewrap.exceptions import BundleError
+from os.path import join
+from bundlewrap.utils import get_file_contents
 
 if node.os == 'debian' and node.os_version[0] < 12:
     raise BundleError('Bundle only supports debian > 12')
@@ -74,9 +76,12 @@ def map_option_types(old_type):
 
 
 dhcp_config = node.metadata.get('dhcp', {})
+ca_config = dhcp_config.get('control_agent')
 
 svc_systemd = {
     "kea-ctrl-agent.service": {
+        'enabled': ca_config.get('enabled'),
+        'running': ca_config.get('enabled'),
         'needs': ['pkg_apt:kea'],
     },
     "kea-dhcp4-server.service": {
@@ -476,14 +481,14 @@ ctrl_agent = {
     # This is a basic configuration for the Kea Control Agent.
     # RESTful interface to be available at http:#127.0.0.1:8000/
     "Control-agent": {
-        "http-host": "127.0.0.1",
+        "http-host": ca_config.get('host'),
         # If enabling HA and multi-threading, the 8000 port is used by the HA
         # hook library http listener. When using HA hook library with
         # multi-threading to function, make sure the port used by dedicated
         # listener is different (e.g. 8001) than the one used by CA. Note
         # the commands should still be sent via CA. The dedicated listener
         # is specifically for HA updates only.
-        "http-port": 8000,
+        "http-port": ca_config.get('port'),
 
         # Specify location of the files to which the Control Agent
         # should connect to forward commands to the DHCPv4, DHCPv6
@@ -562,6 +567,27 @@ ctrl_agent = {
         ]
     }
 }
+
+all_set = True
+one_set = False
+# add TLS to control_agent
+for parameter in ['trust-anchor', 'cert-file', 'key-file']:
+    filename = ca_config.get('tls').get(parameter, None)
+
+    if filename is None:
+        all_set = False
+        continue
+
+    one_set = True
+
+    ctrl_agent['Control-agent'][parameter] = join('/etc/kea/ssl', filename)
+
+if one_set and not all_set:
+    raise BundleError('you need to set all or none of those paremeters: trust-anchor, cert-file, key-file')
+
+# parameter makes only sense, if certs are set
+if all_set:
+    ctrl_agent['Control-agent']['cert-required'] = ca_config.get('tls').get('cert-required')
 
 dhcp4 = {
     # DHCPv4 configuration starts here. This section will be read by DHCPv4 server
@@ -1543,3 +1569,44 @@ files = {
         ],
     },
 }
+
+directories = {
+    '/etc/kea/ssl': {
+        'owner': 'root',
+        'group': 'root',
+        'mode': '0755',
+    }
+}
+
+# get Controll Agent TLS Certs
+for parameter in ['trust-anchor', 'cert-file']:
+    filename = ca_config.get('tls', {}).get(parameter, None)
+
+    if filename is not None:
+        files[join('/etc/kea/ssl', filename)] = {
+            'content': get_file_contents(join(repo.path, "data", "certs", filename)),
+            'content_type': 'text',
+            'owner': "_kea",
+            'group': "_kea",
+            'mode': "0644",
+            'needs': ['pkg_apt:kea'],
+            'triggers': [
+                'svc_systemd:kea-ctrl-agent.service:restart',
+            ],
+        }
+
+for parameter in ['key-file']:
+    filename = ca_config.get('tls', {}).get(parameter, None)
+
+    if filename is not None:
+        files[join('/etc/kea/ssl', filename)] = {
+            'content': repo.vault.decrypt_file(join("certs", filename)),
+            'content_type': 'text',
+            'owner': "_kea",
+            'group': "_kea",
+            'mode': "0600",
+            'needs': ['pkg_apt:kea'],
+            'triggers': [
+                'svc_systemd:kea-ctrl-agent.service:restart',
+            ],
+        }
