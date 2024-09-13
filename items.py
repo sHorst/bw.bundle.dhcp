@@ -329,7 +329,7 @@ for host, host_config in sorted(dhcp_config.get('hosts', {}).items(), key=sort_h
         continue
 
     # find mac
-    mac = host_config['mac']
+    mac = host_config['mac'].lower()
     if mac in used_macs:
         raise ValueError('mac {} is used twice'.format(mac))
 
@@ -460,7 +460,7 @@ for interface, interface_config in node.metadata.get('interfaces', {}).items():
     subnet_reservations = reservations.get(str(subnet), [])
 
     s = {
-        # 'id': '', # TODO: give ID
+        'id': subnet_config.get('id'),
         'subnet': subnet,
         'interface': interface,
         'pools': [
@@ -1050,9 +1050,10 @@ dhcp4 = {
             }
         ]
     }
-
-
 }
+
+# Remove empty lists
+dhcp4['Dhcp4'] = {k: v for k, v in dhcp4['Dhcp4'].items() if v is not None and v != []}
 
 # check HA feature
 if ha_config.get('mode', 'off') != 'off':
@@ -1071,6 +1072,7 @@ if ha_config.get('mode', 'off') != 'off':
             "high-availability": [{
                 "this-server-name": client_name,
                 "mode": ha_config.get('mode'),
+                "wait-backup-ack": False,
                 "heartbeat-delay": ha_config.get('heartbeat-delay'),
                 "max-response-delay": ha_config.get('max-response-delay'),
                 "max-ack-delay": ha_config.get('max-ack-delay'),
