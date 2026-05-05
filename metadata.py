@@ -20,12 +20,16 @@ defaults = {
             'enabled': False,
             # 'interface': 'main_interface',  # if not set, use host to set bind ip
             'host': '127.0.0.1',  # will be set by interface automaticaly
-            'port': 8000,
+            'port': 8001,
 
             "tls-cert-required": False,  # Client needs to authenticate
         },
 
         'high_availability': {
+            'host': '127.0.0.1',  # will be set by interface automaticaly
+            'port': 8000,
+            # 'interface': 'main_interface',  # if not set, use host to set bind ip
+
             "mode": "off",  # can be off, load-balancing, hot-standby, passive-backup
             "client_name": None,  # will be autoset to node name
             "client_role": None,  # must be one of primary, secondary (only in load-balance), standby (only in hot-standby) or backup
@@ -226,6 +230,54 @@ def set_ca_ip_for_interface(metadata):
 
 
 @metadata_reactor
+def set_iptables(metadata):
+    if metadata.get('dhcp/control_agent/interface', None) is None:
+        raise DoNotRunAgain
+
+    iptables_rules = {}
+    iptables_rules += repo.libs.iptables.accept(). \
+        input(metadata.get('dhcp/control_agent/interface', 'main_interface')). \
+        state_new(). \
+        tcp(). \
+        dest_port(metadata.get('dhcp/control_agent/port'))
+
+    return {
+        'iptables': iptables_rules['iptables'],
+    }
+
+
+@metadata_reactor
+def set_ha_ip_for_interface(metadata):
+    i = metadata.get('dhcp/high_availability/interface', 'main_interface')
+
+    if i == 'main_interface':
+        i = metadata.get('main_interface', None)
+
+    if i is None:
+        raise DoNotRunAgain
+
+    if i == 'all':
+        ip = '0.0.0.0'
+    else:
+        interface_config = metadata.get(f'interfaces/{i}', {})
+        if interface_config == {}:
+            raise BundleError(f'Unknown interface {i}')
+
+        ip = interface_config.get('ip_addresses', [None])[0]  # only get first ip
+
+        if ip is None:
+            raise BundleError(f'No IP for interface {i}')
+
+    return {
+        'dhcp': {
+            'high_availability': {
+                'host': ip,
+            }
+        }
+    }
+
+
+@metadata_reactor
 def find_ha_peers(metadata):
     peer_group = metadata.get('dhcp/high_availability/peer_group')
     if (metadata.get('dhcp/high_availability/mode', 'off') == 'off' or
@@ -246,8 +298,8 @@ def find_ha_peers(metadata):
         if peer_name is None:
             peer_name = peer.name
 
-        host = peer.partial_metadata.get('dhcp/control_agent/host')
-        port = peer.partial_metadata.get('dhcp/control_agent/port')
+        host = peer.partial_metadata.get('dhcp/high_availability/host')
+        port = peer.partial_metadata.get('dhcp/high_availability/port')
         tls = peer.partial_metadata.get('dhcp/tls/trust-anchor', None) is not None
 
         url = ('https' if tls else 'http') + f'://{host}:{port}'
@@ -263,11 +315,11 @@ def find_ha_peers(metadata):
 
         if node.has_bundle("iptables") and node.name != peer.name:
             iptables_rules += repo.libs.iptables.accept(). \
-                input(metadata.get('dhcp/control_agent/interface', 'main-interface')). \
+                input(metadata.get('dhcp/high_availability/interface', 'main_interface')). \
                 source(host). \
                 state_new(). \
                 tcp(). \
-                dest_port(metadata.get('dhcp/control_agent/port'))
+                dest_port(metadata.get('dhcp/high_availability/port'))
 
     return {
         'iptables': iptables_rules['iptables'],
