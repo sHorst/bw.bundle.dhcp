@@ -1631,7 +1631,7 @@ files = {
 
 if node.os == 'debian' and node.os_version[0] == 12:
     files['/etc/kea/kea-ctrl-agent.conf'].pop('source')
-    files['/etc/kea/kea-ctrl-agent.conf']['content'] = format_config(ctrl_agent) + "\n",
+    files['/etc/kea/kea-ctrl-agent.conf']['content'] = format_config(ctrl_agent) + "\n"
 
 directories = {
     '/etc/kea/ssl': {
